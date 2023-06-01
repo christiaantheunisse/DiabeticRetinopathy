@@ -40,8 +40,5 @@ Download the weights for the ViT and put them in the folder `weights`. (Credits 
 </tr>
 </tbody></table>
 
-```
-Some command
-```
 
 Download the training data from [Kaggle](#) and put it in the folder `data`.
