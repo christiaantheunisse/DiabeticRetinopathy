@@ -2,9 +2,9 @@ import os
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-from PIL import Image
+import cv2
 import pandas as pd
-import copy
+import numpy as np
 
 """
     This file contains the dataset class and the data augmentation classes.
@@ -52,11 +52,12 @@ class DiabeticRetinopathyDataset(Dataset):
         selected_items = self.items[idx]
         sel_imgs_paths = [os.path.join(self.image_dir, im) + '.jpeg' for im in self.items[idx].tolist()]
         sel_labels = self.labels[idx].tolist()
-        images = [Image.open(p) for p in sel_imgs_paths]
+        images = [cv2.cvtColor(cv2.imread(p, cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB) for p in sel_imgs_paths]
         
         if self.transform:
             images = self.transform(images)
-            
+        
+        # Always convert the images to a torch.Tensor
         images_tensors = [self.ToTensor(im) for im in images]
         
         return torch.stack(images_tensors, dim=0).squeeze(), torch.Tensor(sel_labels).type(torch.int64).squeeze()
@@ -73,7 +74,7 @@ class Resize(object):
     """
     A class to resize the samples used for data augmentation.
     
-    input is list of PIL objects, output should be list of PIL objects
+    input is list of cv2 objects, output should be list of cv2 objects
     
     Arguments:
         output_size (type): ...
@@ -82,5 +83,42 @@ class Resize(object):
         self.output_size = output_size
         
     def __call__(self, samples):
-        samples = [im.resize((self.output_size,)*2) for im in samples]
+        samples = [cv2.resize(im, (self.output_size,)*2) for im in samples]
+        return samples
+    
+class CropBlack(object):
+    """
+    A class to crop the image in such a way that all the unnecessary black background is removed.
+    
+    input is list of cv2 objects, output should be list of cv2 objects
+    
+    Arguments:
+        output_size (type): ...
+    """
+    def __init__(self):
+        pass
+    
+    @staticmethod
+    def crop_black(im):
+        thresholded = im[...,0] > 10  # This results in a True/False mask
+        
+        height, width = im.shape[:2]
+        h = height // 2
+        w = width // 2
+        
+        # Get the center lines of the image, since the eye circle will be the widest at this point,
+        # assuming that the eye is centered
+        horz_line = thresholded[h, :]
+        vert_line = thresholded[:, w]
+        
+        # Since the array is binary, the index of the first element is returned by the argmax()
+        # Search for the first True element in both directions
+        h_low, h_high = horz_line.argmax(), len(horz_line) - np.flip(horz_line).argmax()
+        v_low, v_high = vert_line.argmax(), len(vert_line) - np.flip(vert_line).argmax()
+        
+        # Crop the image according to the find values
+        return im[v_low:v_high, h_low:h_high]
+        
+    def __call__(self, samples):
+        samples = [self.crop_black(im) for im in samples]
         return samples
