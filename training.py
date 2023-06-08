@@ -52,7 +52,7 @@ def train_one_epoch(model: nn.Module,
         running_loss += loss.item()
         
         # Print an update every x batches
-        update_batches = 50
+        update_batches = 10
         if i % update_batches == update_batches - 1:
             avg_loss = running_loss / update_batches # loss per batch
             print(f"  batch {i+1} loss: {avg_loss}")

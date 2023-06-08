@@ -90,4 +90,4 @@ class WeightedKappaLoss(nn.Module):
         return 1 - self.kappa_loss(y_pred, y_true)
     else:
         # The kappa converted to a loss: ln(1 - \kappa)
-        return torch.log(self.kappa_loss(y_pred,y_true))
+        return self.kappa_loss(y_pred,y_true)
