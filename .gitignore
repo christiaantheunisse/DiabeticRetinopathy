@@ -2,4 +2,5 @@
 *.pth
 *.csv
 *.jpeg
+*.zip
 __pycache__

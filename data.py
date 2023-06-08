@@ -5,6 +5,7 @@ from torchvision import transforms
 import cv2
 import pandas as pd
 import numpy as np
+from typing import Dict
 
 """
     This file contains the dataset class and the data augmentation classes.
@@ -13,7 +14,13 @@ import numpy as np
 class DiabeticRetinopathyDataset(Dataset):
     """The Diabetic Retinopathy dataset from Kaggle."""
 
-    def __init__(self, csv_file: str, root_dir: str, image_dir: str, size: int = None, transform=None):
+    def __init__(self, csv_file: str, 
+                 root_dir: str, 
+                 image_dir: str, 
+                 size: int = None, 
+                 transform=None, 
+                 sample_rates: Dict[int, float]={0: 0.5, 1: 2., 2: 1., 3: 3., 4: 3.},
+                ):
         """
         Arguments:
             csv_file (string): The csv file with the labels
@@ -21,6 +28,8 @@ class DiabeticRetinopathyDataset(Dataset):
             image_dir (string): The path to the directory with the images from the root_dir.
             size (int): Only consider the first number of samples from the csv file. 
             transform (Callable, optional): Optional transform to be applied on samples
+            sample_rate (Dict[int, float]): The down-/upsample rate per class. Classes that are not included in the dict
+                will not be sampled at all.
         """
         self.df = pd.read_csv(os.path.join(root_dir, csv_file))
         self.root_dir = root_dir
@@ -33,7 +42,11 @@ class DiabeticRetinopathyDataset(Dataset):
         if size is not None:
             self.items = self.items[:size]
             self.labels = self.labels[:size]
-       
+        
+        if sample_rates:
+            self.sample_rates = sample_rates
+            self._down_up_sample()
+          
     def __getitem__(self, idx) -> torch.Tensor:
         """
         Can obtain images as tensors from dataset by giving an index or 
@@ -65,19 +78,57 @@ class DiabeticRetinopathyDataset(Dataset):
     def __len__(self):
         return len(self.items)
     
+    def _down_up_sample(self):
+        """
+            Change the frequency per class according to self.sample_rates
+        """
+        # Newly sampled data is saved in this dict
+        new_data_dict: Dict[int, Tuple[pd.core.series.Series, pd.core.series.Series]] = dict()
+
+        for key, value in self.sample_rates.items():
+            # mask and indices for a certain label class
+            mask = self.labels == key
+            indices = np.arange(len(self))[mask]
+
+            # if downsampling
+            if value < 1:
+                # Just use the first ones, since the dataset is already shuffled
+                keep_idx = int(len(indices) * value)
+                new_labels = self.labels[mask][:keep_idx]
+                new_items = self.items[mask][:keep_idx]
+            # if oversampling
+            else:
+                # Concatenate multiple times with itself
+                new_labels = pd.concat((self.labels[mask],)*int(value))
+                new_items = pd.concat((self.items[mask],)*int(value))
+
+            assert len(new_labels) == len(new_items)
+            new_data_dict[key] = (new_labels, new_items)
+
+        # Concatenate the data 
+        labels = pd.concat([v[0] for v in new_data_dict.values()]).reset_index(drop=True)
+        items = pd.concat([v[1] for v in new_data_dict.values()]).reset_index(drop=True)
+
+        # Shuffle the data (with random seed for reproducibility)
+        np.random.seed(33)
+        shuffled_indices = np.arange(len(labels))
+        np.random.shuffle(shuffled_indices)
+        self.labels = labels[shuffled_indices]
+        self.items = items[shuffled_indices]
+        
 
 """
     Data augmentation methods
 """
 
-class Resize(object):
+class Resize():
     """
     A class to resize the samples used for data augmentation.
     
     input is list of cv2 objects, output should be list of cv2 objects
     
     Arguments:
-        output_size (type): ...
+        output_size (int): desired height and width of the image
     """
     def __init__(self, output_size: int):
         self.output_size = output_size
@@ -86,14 +137,11 @@ class Resize(object):
         samples = [cv2.resize(im, (self.output_size,)*2) for im in samples]
         return samples
     
-class CropBlack(object):
+class CropBlack():
     """
     A class to crop the image in such a way that all the unnecessary black background is removed.
     
     input is list of cv2 objects, output should be list of cv2 objects
-    
-    Arguments:
-        output_size (type): ...
     """
     def __init__(self):
         pass
@@ -122,3 +170,67 @@ class CropBlack(object):
     def __call__(self, samples):
         samples = [self.crop_black(im) for im in samples]
         return samples
+    
+
+class RandomCrop():
+    """
+        A class to randomly crop the image to a certain size
+
+        input is list of cv2 objects, output should be list of cv2 objects
+    
+    Arguments:
+        output_size (int): desired height and width of the image
+    """
+    def __init__(self, output_size: int):
+        self.output_size = output_size
+        
+    def random_crop(self, im):
+        h, w = im.shape[:2]
+        
+        h_crop = np.random.randint(low=0, high=h-self.output_size+1)
+        w_crop = np.random.randint(low=0, high=w-self.output_size+1)
+        im = im[h_crop:h_crop+self.output_size, w_crop:w_crop+self.output_size]
+        
+        return im      
+        
+    def __call__(self, samples):
+        samples = [self.random_crop(im) for im in samples]
+        return samples
+    
+
+class RandomFlip():
+    """
+        A class to flip the image horizontally and vertically with a certain probability
+
+        input is list of cv2 objects, output should be list of cv2 objects
+    
+    Arguments:
+        horz_prob (float): probability to flip horizontally
+        vert_prob (float): probability to flip vertically
+    """
+    def __init__(self, horz_prob: float = 0.5, vert_prob: float = 0.5):
+        self.horz_prob = horz_prob
+        self.vert_prob = vert_prob
+        
+    def flip(self, im):
+        # flipcode (int)...
+        #   = 0 : flip vertically
+        #   > 0 : flip horizontally
+        #   < 0 : flip both axes
+        
+        h_flip = np.random.uniform() < self.horz_prob
+        v_flip = np.random.uniform() < self.vert_prob
+        
+        if h_flip and v_flip:
+            im = cv2.flip(im, -1)
+        elif h_flip:
+            im = cv2.flip(im, 1)
+        elif v_flip:
+            im = cv2.flip(im, 0)
+        
+        return im      
+        
+    def __call__(self, samples):
+        samples = [self.flip(im) for im in samples]
+        return samples
+    
