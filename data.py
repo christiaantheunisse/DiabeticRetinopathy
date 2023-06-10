@@ -7,6 +7,10 @@ import pandas as pd
 import numpy as np
 from typing import Dict
 
+from scipy.ndimage.interpolation import map_coordinates
+from scipy.ndimage.filters import gaussian_filter
+import matplotlib.pyplot as plt
+
 """
     This file contains the dataset class and the data augmentation classes.
 """
@@ -228,9 +232,81 @@ class RandomFlip():
         elif v_flip:
             im = cv2.flip(im, 0)
         
-        return im      
-        
+        return im   
+    
     def __call__(self, samples):
         samples = [self.flip(im) for im in samples]
         return samples
+   
+    
+class RandomElasticDeformation():
+    """
+        A class to flip the image horizontally and vertically with a certain probability
+
+        input is list of cv2 objects, output should be list of cv2 objects
+    
+    Arguments:
+        horz_prob (float): probability to flip horizontally
+        vert_prob (float): probability to flip vertically
+    """
+    
+    
+    # Code based on https://www.kaggle.com/code/bguberfain/elastic-transform-for-data-augmentation/notebook
+    def elastic_transformation(self, image, alpha, sigma, alpha_affine, grid_size, random_state=None):
+        
+        # Generate a matrix of shape (image_shape[0]ximage_shape[1]) filled with random values on [0..1]
+        if random_state is None:
+            random_state = np.random.RandomState(None)
+        
+        # Store image parameters
+        image_shape = image.shape
+        image_shape_size = image_shape[:2]
+        
+        # Construct the random affine transformation
+        center_square = np.float32(image_shape_size) // 2
+        center_square_size = min(image_shape_size) // 3
+        
+        points_one = np.float32([center_square + center_square_size,  [center_square[0]+center_square_size, center_square[1]-center_square_size], center_square - center_square_size])
+        
+        points_two = points_one + random_state.uniform(-alpha_affine, alpha_affine, size=points_one.shape).astype(np.float32)
+        
+        # Create Affine transformation matrix and warp image
+        affine_matrix = cv2.getAffineTransform(points_one, points_two)
+        new_image  = cv2.warpAffine(image, affine_matrix, image_shape_size[::-1], borderMode=cv2.BORDER_REFLECT_101)
+        
+
+        # Compute deltas
+        delta_x = gaussian_filter((random_state.rand(*image_shape) * 2 - 1), sigma) * alpha
+        delta_y = gaussian_filter((random_state.rand(*image_shape) * 2 - 1), sigma) * alpha
+        delta_z = np.zeros_like(delta_x) 
+
+
+        x, y, z = np.meshgrid(np.arange(image_shape[1]), np.arange(image_shape[0]), np.arange(image_shape[2]))
+        indices = np.reshape(y+delta_y, (-1, 1)), np.reshape(x+delta_x, (-1, 1)), np.reshape(z, (-1, 1))
+
+        # Draw distortion grid on image if wanted
+        if grid_size != 0:
+            for i in range(0, image.shape[1], grid_size):
+                cv2.line(image, (i, 0), (i, image.shape[0]), color=(255,255, 255))
+            for j in range(0, image.shape[0], grid_size):
+                cv2.line(image, (0, j), (image.shape[1], j), color=(255,255, 255))
+
+
+        return map_coordinates(image, indices, order=1, mode='reflect').reshape(image_shape)
+    
+        
+        
+    def __call__(self, samples):
+        samples = [self.elastic_transformation(im, 200,im.shape[0]*0.08 , im.shape[0]*0.08, 0) for im in samples]
+        return samples
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     
