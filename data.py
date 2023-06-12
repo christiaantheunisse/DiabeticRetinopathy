@@ -5,7 +5,7 @@ from torchvision import transforms
 import cv2
 import pandas as pd
 import numpy as np
-from typing import Dict
+from typing import Dict, Tuple
 
 from scipy.ndimage.interpolation import map_coordinates
 from scipy.ndimage.filters import gaussian_filter
@@ -24,6 +24,7 @@ class DiabeticRetinopathyDataset(Dataset):
                  size: int = None, 
                  transform=None, 
                  sample_rates: Dict[int, float]={0: 0.5, 1: 2., 2: 1., 3: 3., 4: 3.},
+                 verify: bool = False,
                 ):
         """
         Arguments:
@@ -34,6 +35,7 @@ class DiabeticRetinopathyDataset(Dataset):
             transform (Callable, optional): Optional transform to be applied on samples
             sample_rate (Dict[int, float]): The down-/upsample rate per class. Classes that are not included in the dict
                 will not be sampled at all.
+            verify (bool): Call the `_reduce_to_available` function when initializing
         """
         self.df = pd.read_csv(os.path.join(root_dir, csv_file))
         self.root_dir = root_dir
@@ -43,6 +45,11 @@ class DiabeticRetinopathyDataset(Dataset):
         
         self.items = self.df.iloc[:, 0]
         self.labels = self.df.iloc[:, 1]
+        
+        # Use only found images
+        if verify:
+            self._reduce_to_available()
+        
         if size is not None:
             self.items = self.items[:size]
             self.labels = self.labels[:size]
@@ -81,6 +88,23 @@ class DiabeticRetinopathyDataset(Dataset):
     
     def __len__(self):
         return len(self.items)
+    
+    def _reduce_to_available(self):
+        """
+            Make the dataset only use images and labels from the csv-file that are actually found in the data folder.
+        """
+        files = [f.replace('.jpeg', '') for f in os.listdir(self.image_dir)]
+        new_items, new_labels = [], []
+        for item, label in zip(self.items, self.labels):
+            if item in files:
+                new_items.append(item)
+                new_labels.append(label)
+
+        assert len(new_items) == len(new_labels)
+        print(f"The new no. of images in the dataset is: {len(new_items)}")
+        
+        self.items = pd.Series(new_items)
+        self.labels = pd.Series(new_labels)
     
     def _down_up_sample(self):
         """
