@@ -43,8 +43,13 @@ def train_one_epoch(model: nn.Module,
 #         print(f"Model output: \n{outputs}")
 #         print(f"labels: \n{labels}")
         loss = loss_fn(outputs, labels)
-        loss.backward()
 
+        loss.backward()
+        
+        if epoch_index == 1:
+            for name, p in model.head.named_parameters():
+                print(f"parameter: {name}\n{p.grad.sum()}")
+                
         # Adjust learning weights
         optimizer.step()
 
@@ -57,6 +62,7 @@ def train_one_epoch(model: nn.Module,
             avg_loss = running_loss / update_batches # loss per batch
             print(f"  batch {i+1} loss: {avg_loss}")
             running_loss = 0.
+            total_grad = 0
 
     return avg_loss
 

@@ -4,3 +4,4 @@
 *.jpeg
 *.zip
 __pycache__
+models/*
