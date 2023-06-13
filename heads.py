@@ -55,3 +55,40 @@ class DeepDenseHead(nn.Module):
         x = F.softmax(x,dim=1)
         
         return x
+    
+class DenseSkipHead(nn.Module):
+    """
+        This head implements a deep and shallow model that uses skip connections and has approximately 
+        the same amount of parameters as the `DeepDenseHead`.
+    """
+    def __init__(self, input_dims: int, output_dims: int, hidden_dims: int=200, no_hidden_layers: int=3):
+        super().__init__()
+        
+        self.linear_in = nn.Linear(input_dims, hidden_dims)
+        
+        self.no_hidden_layers = no_hidden_layers
+        self.naming = lambda i: f"linear_hid_{i}"
+        # Set a variable amount of hidden layers: cannot be a list, because torch does
+        # not recognize the separate layers in that case
+        for i in range(self.no_hidden_layers):
+            setattr(self, self.naming(i), nn.Linear(hidden_dims, hidden_dims))
+
+        self.linear_out = nn.Linear(hidden_dims, output_dims)
+        self.act = nn.GELU() # define the activation function
+        
+    def forward(self, x):
+        x = self.linear_in(x)
+        x = self.act(x)
+        
+        for i in range(self.no_hidden_layers):
+            layer = getattr(self, self.naming(i))
+            x = x + self.act(layer(x)) # with skip connection
+            
+        x = self.linear_out(x)
+        x = F.softmax(x, dim=1)
+        
+        return x
+        
+        
+        
+        
